@@ -6,8 +6,8 @@ import inspect
 import json
 import types
 from dataclasses import dataclass
-from typing import Any, Callable, get_args, get_origin
-
+from typing import Any, get_args, get_origin
+from collections.abc import Callable
 
 @dataclass
 class ToolDefinition:
@@ -15,6 +15,7 @@ class ToolDefinition:
 
     name: str
     description: str
+    context: str
     func: Callable[..., Any]
     schema: dict[str, Any]
 
@@ -61,7 +62,28 @@ def _json_type(annotation: Any) -> str | list[str]:
     return "string"
 
 
-def _build_openai_tool_schema(func: Callable[..., Any]) -> dict[str, Any]:
+def _compose_tool_description(
+    func: Callable[..., Any],
+    *,
+    description: str | None = None,
+    context: str | None = None,
+) -> str:
+    base_description = (description or inspect.getdoc(func) or f"Tool function {func.__name__}").strip()
+    context_text = (context or getattr(func, "__agentapi_tool_context__", None) or "").strip()
+
+    if context_text and context_text not in base_description:
+        return f"{base_description}\n\nContext: {context_text}"
+
+    return base_description
+
+
+def _build_openai_tool_schema(
+    func: Callable[..., Any],
+    *,
+    description: str | None = None,
+    context: str | None = None,
+    name: str | None = None,
+) -> dict[str, Any]:
     signature = inspect.signature(func)
     properties: dict[str, Any] = {}
     required: list[str] = []
@@ -86,8 +108,8 @@ def _build_openai_tool_schema(func: Callable[..., Any]) -> dict[str, Any]:
     return {
         "type": "function",
         "function": {
-            "name": func.__name__,
-            "description": inspect.getdoc(func) or f"Tool function {func.__name__}",
+            "name": (name or func.__name__).strip(),
+            "description": _compose_tool_description(func, description=description, context=context),
             "strict": True,
             "parameters": {
                 "type": "object",
@@ -99,17 +121,51 @@ def _build_openai_tool_schema(func: Callable[..., Any]) -> dict[str, Any]:
     }
 
 
-def tool(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Decorator that tags a Python function as an AgentAPI tool."""
+def tool(
+    func: Callable[..., Any] | None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    context: str | None = None,
+) -> Callable[..., Any]:
+    """Decorator that tags a Python function as an AgentAPI tool.
 
-    setattr(func, "__agentapi_tool_schema__", _build_openai_tool_schema(func))
-    return func
+    The decorator supports explicit metadata so the caller can provide LLM-facing
+    context at tool creation time without relying on docstrings alone.
+    """
+
+    def decorator(target: Callable[..., Any]) -> Callable[..., Any]:
+        tool_name = (name or target.__name__).strip()
+        tool_description = _compose_tool_description(target, description=description, context=context)
+
+        setattr(target, "__agentapi_tool_name__", tool_name)
+        setattr(target, "__agentapi_tool_description__", tool_description)
+        setattr(target, "__agentapi_tool_context__", (context or "").strip())
+        setattr(
+            target,
+            "__agentapi_tool_schema__",
+            _build_openai_tool_schema(
+                target,
+                description=description,
+                context=context,
+                name=tool_name,
+            ),
+        )
+        return target
+
+    if func is not None:
+        return decorator(func)
+
+    return decorator
 
 
 def to_tool_definition(func: Callable[..., Any]) -> ToolDefinition:
     schema = getattr(func, "__agentapi_tool_schema__", None)
     if not schema:
         schema = _build_openai_tool_schema(func)
+
+    description = getattr(func, "__agentapi_tool_description__", None) or inspect.getdoc(func) or ""
+    context = getattr(func, "__agentapi_tool_context__", None) or ""
 
     return ToolDefinition(
         name=func.__name__,
