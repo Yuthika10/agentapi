@@ -2,6 +2,11 @@
 
 AgentAPI supports token streaming using SSE.
 
+## Choose the Right Path
+
+- Use `await agent.run(...)` when you need final answers with tool rounds.
+- Use `agent.stream(...)` when you need chunked token delivery.
+
 ## Automatic Streaming with `@app.chat`
 
 If a handler returns an async iterator, AgentAPI automatically returns `text/event-stream`.
@@ -17,6 +22,11 @@ async def stream_chat(message: str):
 - Emits incremental `data:` chunks
 - Sends `data: [DONE]` at completion
 - Includes anti-buffering headers for reverse proxies
+
+## Tool Calling and Streaming
+
+For tool-heavy flows, prefer `run` when correctness is more important than token latency.
+For live typing UX, use `stream`.
 
 ## Error Behavior in Streams
 

@@ -31,6 +31,11 @@ Methods:
 - `reset_memory()`
 - `register_provider(name, factory)` (class method)
 
+Notes:
+
+- `run` is the best default for tool-centric workflows.
+- `stream` is for incremental output over SSE.
+
 ## `AgentApp`
 
 Subclass of FastAPI with chat decorators and branded docs pages.
@@ -53,6 +58,18 @@ Decorator for registering LLM-callable functions.
 @tool
 def my_tool(arg: str) -> str:
     """Description used by model."""
+    ...
+```
+
+Decorator supports metadata overrides:
+
+```python
+@tool(
+    name="my_tool",
+    description="Short action-oriented tool description",
+    context="Extra model-facing guidance for when to use this tool",
+)
+def my_tool(arg: str) -> str:
     ...
 ```
 

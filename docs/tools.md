@@ -4,6 +4,10 @@ Tool calling lets the model invoke your Python functions during a conversation.
 
 ## Define a Tool
 
+You can define tools with plain `@tool` or with explicit metadata.
+
+### Option A: Docstring-based
+
 ```python
 from agentapi import tool
 
@@ -13,6 +17,23 @@ def get_weather(city: str) -> str:
     """Get current weather for a city in plain text."""
     return f"Weather in {city}: sunny"
 ```
+
+### Option B: Explicit metadata (recommended)
+
+```python
+from agentapi import tool
+
+
+@tool(
+    name="get_weather",
+    description="Get current weather conditions for a city.",
+    context="Use this for weather intent. Ask for city when missing.",
+)
+def get_weather(city: str) -> str:
+    return f"Weather in {city}: sunny"
+```
+
+Metadata helps the model choose tools more reliably in ambiguous prompts.
 
 ## Attach Tools to an Agent
 
@@ -37,10 +58,26 @@ agent = Agent(
 
 ## Recommended Tool Authoring
 
-- Add concise docstrings that state what the tool does and returns.
-- Use clear argument names.
-- Keep outputs structured and predictable.
-- Handle exceptions inside tools for graceful failure messages.
+- Add explicit `description` and `context` for model-facing intent.
+- Use clear argument names and type hints.
+- Keep outputs deterministic and concise.
+- Return machine-friendly strings for downstream parsing when needed.
+- Handle exceptions inside the tool and return actionable failure text.
+
+## Tool Design Example
+
+```python
+@tool(
+    description="Lookup current stock quantity for a SKU.",
+    context="Use before confirming order availability.",
+)
+def get_inventory(sku: str) -> str:
+    try:
+        qty = inventory_service.lookup(sku)
+        return f"sku={sku}; quantity={qty}"
+    except Exception:
+        return f"sku={sku}; error=inventory_lookup_failed"
+```
 
 ## Parsing and Validation
 

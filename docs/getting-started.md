@@ -2,6 +2,17 @@
 
 This guide takes you from zero to a running API in a few minutes.
 
+## 0. Configure Environment
+
+Create `.env` in your project root:
+
+```env
+OPENAI_API_KEY=
+GEMINI_API_KEY=
+OPENROUTER_API_KEY=
+DEFAULT_PROVIDER=openai
+```
+
 ## 1. Create `main.py`
 
 ```python
@@ -64,3 +75,20 @@ The scaffold includes:
 - `tools.py`
 - `agents.py`
 - `.env`
+
+## 6. Add Your First Tool
+
+```python
+from agentapi import tool
+
+
+@tool(
+    description="Get the current date in ISO format.",
+    context="Use when user asks for date/time.",
+)
+def get_date() -> str:
+    from datetime import datetime
+    return datetime.now().isoformat()
+```
+
+Attach it via `Agent(..., tools=[get_date])`.
