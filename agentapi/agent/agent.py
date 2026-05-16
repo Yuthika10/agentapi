@@ -46,7 +46,7 @@ class AgentStream:
         async for chunk in agent.stream(message):
             print(chunk)
 
-        # Pattern 2 — FastAPI StreamingResponse
+        # Pattern 2 — FastAPI StreamingResponse (SSE)
         return agent.stream(message).to_streaming_response()
 
     Incorrect usage::
@@ -68,9 +68,21 @@ class AgentStream:
             "Or:   agent.stream(message).to_streaming_response()"
         )
 
-    def to_streaming_response(self, media_type: str = "text/event-stream") -> StreamingResponse:
-        """Wrap the stream in a FastAPI StreamingResponse for SSE endpoints."""
-        return StreamingResponse(self._generator, media_type=media_type)
+    def to_streaming_response(self) -> StreamingResponse:
+        """Wrap the stream in a FastAPI StreamingResponse using SSE format.
+
+        Each token is formatted as a valid SSE event: ``data: <token>\\n\\n``.
+        Provider errors are surfaced as ``data: [ERROR] <message>\\n\\n`` so the
+        client receives a clean event instead of an abrupt stream termination.
+        """
+        async def _sse_generator() -> AsyncIterator[str]:
+            try:
+                async for token in self._generator:
+                    yield f"data: {token}\n\n"
+            except Exception as exc:
+                yield f"data: [ERROR] {exc}\n\n"
+
+        return StreamingResponse(_sse_generator(), media_type="text/event-stream")
 
 
 class Agent:
@@ -131,47 +143,48 @@ class Agent:
         conversation_messages = self._conversation_messages([{"role": "user", "content": message}])
         provider = self._get_provider()
 
-        try:
-            for _ in range(max_tool_rounds + 1):
+        for _ in range(max_tool_rounds + 1):
+            # Narrow the provider error wrapper to only the actual provider call.
+            try:
                 response = await provider.chat(
                     conversation_messages,
                     tools=self._tool_schemas(),
                     tool_calling=self.tool_calling,
                 )
+            except Exception as exc:
+                logger.error(
+                    "[AgentAPI] Provider error in run(): %s. Check your API key and provider configuration.",
+                    exc,
+                )
+                raise AgentAPIProviderError(
+                    f"Provider call failed: {exc}. Check your API key and provider configuration.",
+                    original=exc,
+                ) from exc
 
-                if response.tool_calls:
-                    conversation_messages.append(
-                        {
-                            "role": "assistant",
-                            "content": response.content or "",
-                            "tool_calls": [
-                                {
-                                    "id": call.id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": call.name,
-                                        "arguments": call.arguments,
-                                    },
-                                }
-                                for call in response.tool_calls
-                            ],
-                        }
-                    )
-                    await self._execute_tool_calls(response.tool_calls, conversation_messages)
-                    continue
+            if response.tool_calls:
+                conversation_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": response.content or "",
+                        "tool_calls": [
+                            {
+                                "id": call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": call.name,
+                                    "arguments": call.arguments,
+                                },
+                            }
+                            for call in response.tool_calls
+                        ],
+                    }
+                )
+                await self._execute_tool_calls(response.tool_calls, conversation_messages)
+                continue
 
-                self.memory.add({"role": "user", "content": message})
-                self.memory.add({"role": "assistant", "content": response.content})
-                return response.content
-
-        except AgentAPIUsageError:
-            raise
-        except Exception as exc:
-            logger.error("[AgentAPI] Provider error in run(): %s. Check your API key and provider configuration.", exc)
-            raise AgentAPIProviderError(
-                f"Provider call failed: {exc}. Check your API key and provider configuration.",
-                original=exc,
-            ) from exc
+            self.memory.add({"role": "user", "content": message})
+            self.memory.add({"role": "assistant", "content": response.content})
+            return response.content
 
         fallback = "Tool loop reached max rounds without final response"
         self.memory.add({"role": "user", "content": message})
@@ -205,6 +218,8 @@ class Agent:
         provider = self._get_provider()
 
         collected: list[str] = []
+
+        # Narrow the provider error wrapper to only the streaming call.
         try:
             async for token in provider.stream(
                 conversation_messages,
@@ -213,9 +228,11 @@ class Agent:
             ):
                 collected.append(token)
                 yield token
-
         except Exception as exc:
-            logger.error("[AgentAPI] Streaming error: %s. Check your provider configuration and API key.", exc)
+            logger.error(
+                "[AgentAPI] Streaming error: %s. Check your provider configuration and API key.",
+                exc,
+            )
             raise AgentAPIProviderError(
                 f"Streaming failed: {exc}",
                 original=exc,
