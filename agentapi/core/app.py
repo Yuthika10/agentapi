@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import asyncio
+import math
 from functools import wraps
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, TypeVar
@@ -35,10 +36,21 @@ class AgentAPI(FastAPI):
         sse_heartbeat_seconds: float | None = None,
        **kwargs: Any,
     ) -> None:
-        if sse_chunk_size <= 0:
+        if (
+            isinstance(sse_chunk_size, bool)
+            or not isinstance(sse_chunk_size, int)
+            or sse_chunk_size <= 0
+        ):
             raise ValueError("sse_chunk_size must be a positive integer")
-        if sse_heartbeat_seconds is not None and sse_heartbeat_seconds <= 0:
-            raise ValueError("sse_heartbeat_seconds must be positive when set")
+        if sse_heartbeat_seconds is not None and (
+            isinstance(sse_heartbeat_seconds, bool)
+            or not isinstance(sse_heartbeat_seconds, (int, float))
+            or not math.isfinite(sse_heartbeat_seconds)
+            or sse_heartbeat_seconds <= 0
+        ):
+            raise ValueError(
+                "sse_heartbeat_seconds must be a positive finite number when set"
+            )
 
         self._sse_chunk_size = sse_chunk_size
         self._sse_heartbeat_seconds = sse_heartbeat_seconds
