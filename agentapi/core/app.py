@@ -296,6 +296,16 @@ window.addEventListener('load', function () {
 """
         return HTMLResponse(html.replace("</head>", f"{inject}</head>"))
 
+    def _safe_exc_text(self, exc: BaseException) -> str:
+        """Return exception text with sensitive-data redaction applied if enabled."""
+        if not self._error_redaction:
+            return self._safe_exc_text_no_redact(exc)
+        return redact_exception(exc, patterns=self._error_redaction_patterns)
+
+    def _safe_exc_text_no_redact(self, exc: BaseException) -> str:
+        """Return exception text without any redaction."""
+        return str(exc)
+
     async def _invoke_handler(self, func: F, *args: Any, **kwargs: Any) -> Any:
         result = func(*args, **kwargs)
         if inspect.isawaitable(result):
@@ -326,9 +336,9 @@ window.addEventListener('load', function () {
                         async for chunk in self._iter_token_chunks(str(token)):
                             yield f"data: {chunk}\n\n"
                 except AgentConfigurationError as exc:
-                    yield f"event: error\ndata: {exc}\n\n"
+                    yield f"event: error\ndata: {self._safe_exc_text(exc)}\n\n"
                 except AgentProviderError as exc:
-                    yield f"event: error\ndata: {exc}\n\n"
+                    yield f"event: error\ndata: {self._safe_exc_text(exc)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
 
@@ -343,9 +353,9 @@ window.addEventListener('load', function () {
                     async for token in stream:
                         await queue.put(("data", token))
                 except (AgentConfigurationError, AgentProviderError) as exc:
-                    await queue.put(("error", str(exc)))
+                    await queue.put(("error", self._safe_exc_text(exc)))
                 except Exception as exc:  # noqa: BLE001
-                    await queue.put(("error", f"Internal error: {exc}"))
+                    await queue.put(("error", self._safe_exc_text(exc)))
                 finally:
                     await queue.put(("done", None))
 
@@ -402,9 +412,9 @@ window.addEventListener('load', function () {
                         return self._to_sse_response(result)
                     return result
                 except AgentConfigurationError as exc:
-                    return JSONResponse({"error": str(exc)}, status_code=500)
+                    return JSONResponse({"error": self._safe_exc_text(exc)}, status_code=500)
                 except AgentProviderError as exc:
-                    return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
+                    return JSONResponse({"error": self._safe_exc_text(exc)}, status_code=exc.status_code)
 
             setattr(endpoint, "__signature__", signature)
 
@@ -428,9 +438,9 @@ window.addEventListener('load', function () {
                 try:
                     result = await self._invoke_handler(func, *args, **inner_kwargs)
                 except AgentConfigurationError as exc:
-                    return JSONResponse({"error": str(exc)}, status_code=500)
+                    return JSONResponse({"error": self._safe_exc_text(exc)}, status_code=500)
                 except AgentProviderError as exc:
-                    return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
+                    return JSONResponse({"error": self._safe_exc_text(exc)}, status_code=exc.status_code)
 
                 if not hasattr(result, "__aiter__"):
                     raise TypeError("@app.stream handlers must return an async iterator")
