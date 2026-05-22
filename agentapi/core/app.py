@@ -326,6 +326,16 @@ window.addEventListener('load', function () {
     def _safe_exc_text_no_redact(self, exc: BaseException) -> str:
         """Return exception text without any redaction."""
         return str(exc)
+    
+    def _safe_sse_payload(self, text: str) -> str:
+        """Make text safe for an SSE data: line by collapsing CR/LF to spaces.
+
+        SSE uses \\n as a field separator within an event and \\n\\n as the
+        event terminator. A payload containing newlines lets a caller break
+        framing and inject fake event/data fields. Collapsing them preserves
+        the message while protecting the protocol.
+        """
+        return text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
     async def _invoke_handler(self, func: F, *args: Any, **kwargs: Any) -> Any:
         result = func(*args, **kwargs)
@@ -357,9 +367,9 @@ window.addEventListener('load', function () {
                         async for chunk in self._iter_token_chunks(str(token)):
                             yield f"data: {chunk}\n\n"
                 except AgentConfigurationError as exc:
-                    yield f"event: error\ndata: {self._safe_exc_text(exc)}\n\n"
+                    yield f"event: error\ndata: {self._safe_sse_payload(self._safe_exc_text(exc))}\n\n"
                 except AgentProviderError as exc:
-                    yield f"event: error\ndata: {self._safe_exc_text(exc)}\n\n"
+                    yield f"event: error\ndata: {self._safe_sse_payload(self._safe_exc_text(exc))}\n\n"
                 yield "data: [DONE]\n\n"
                 return
 
@@ -395,7 +405,7 @@ window.addEventListener('load', function () {
                         yield "data: [DONE]\n\n"
                         return
                     if kind == "error":
-                        yield f"event: error\ndata: {payload}\n\n"
+                        yield f"event: error\ndata: {self._safe_sse_payload(payload)}\n\n"
                         continue
                     # kind == "data"
                     async for chunk in self._iter_token_chunks(str(payload)):
