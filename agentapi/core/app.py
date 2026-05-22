@@ -1,6 +1,7 @@
 """FastAPI wrapper with chat and stream decorators."""
 
 from __future__ import annotations
+from agentapi.core.redaction import DEFAULT_PATTERNS, redact_exception
 
 import inspect
 import asyncio
@@ -56,6 +57,10 @@ class AgentAPI(FastAPI):
         self._sse_chunk_size = sse_chunk_size
         self._sse_heartbeat_seconds = sse_heartbeat_seconds
 
+        # Extract AgentAPI-specific kwargs before they reach FastAPI's __init__
+        error_redaction = kwargs.pop("error_redaction", True)
+        error_redaction_patterns = kwargs.pop("error_redaction_patterns", None)
+        
         kwargs.setdefault("title", "AgentAPI")
         kwargs.setdefault("description", "AgentAPI application")
         kwargs.setdefault("version", "0.1.0")
@@ -89,6 +94,13 @@ class AgentAPI(FastAPI):
         self._agentapi_favicon_file = assets_dir / "agentapi-favicon.png"
         self._agentapi_logo_path = "/agentapi-logo.png"
         self._agentapi_favicon_path = "/agentapi-favicon.png"
+        
+        self._error_redaction = error_redaction
+        if error_redaction_patterns is None:
+            self._error_redaction_patterns: list[str] = list(DEFAULT_PATTERNS)
+        else:
+            # Additive: user patterns extend the defaults rather than replace them
+            self._error_redaction_patterns = list(DEFAULT_PATTERNS) + list(error_redaction_patterns)
 
         self.openapi = self._custom_openapi
 
