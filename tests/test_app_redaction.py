@@ -73,7 +73,6 @@ def test_unknown_exception_type_still_redacted():
     assert "sk-" not in content
     assert "[REDACTED]" in content
     
-import pytest
 
 
 class TestKwargValidation:
