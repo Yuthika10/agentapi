@@ -61,6 +61,27 @@ class AgentAPI(FastAPI):
         error_redaction = kwargs.pop("error_redaction", True)
         error_redaction_patterns = kwargs.pop("error_redaction_patterns", None)
         
+        if not isinstance(error_redaction, bool):
+            raise TypeError(
+                f"error_redaction must be a bool, got {type(error_redaction).__name__}. "
+                f"To disable redaction, use error_redaction=False."
+            )
+        if error_redaction_patterns is not None:
+            if isinstance(error_redaction_patterns, str):
+                raise TypeError(
+                    "error_redaction_patterns must be a list of regex strings, not a single string. "
+                    "Wrap your pattern in a list: error_redaction_patterns=[pattern]"
+                )
+            if not isinstance(error_redaction_patterns, (list, tuple)):
+                raise TypeError(
+                    "error_redaction_patterns must be a list or tuple of regex strings, "
+                    f"got {type(error_redaction_patterns).__name__}"
+                )
+            if not all(isinstance(p, str) for p in error_redaction_patterns):
+                raise TypeError(
+                    "error_redaction_patterns must contain only strings"
+                )
+        
         kwargs.setdefault("title", "AgentAPI")
         kwargs.setdefault("description", "AgentAPI application")
         kwargs.setdefault("version", "0.1.0")

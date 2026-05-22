@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from agentapi.core.app import AgentAPI
 from agentapi.errors import AgentProviderError
+import pytest
 
 
 def _make_failing_app(error_redaction: bool = True, extra_patterns=None):
@@ -71,3 +72,34 @@ def test_unknown_exception_type_still_redacted():
     
     assert "sk-" not in content
     assert "[REDACTED]" in content
+    
+import pytest
+
+
+class TestKwargValidation:
+    def test_error_redaction_string_raises_type_error(self):
+        """String 'false' is truthy; reject it loudly instead of silently keeping redaction on."""
+        with pytest.raises(TypeError, match="must be a bool"):
+            AgentAPI(error_redaction="false")
+
+    def test_error_redaction_int_raises_type_error(self):
+        with pytest.raises(TypeError, match="must be a bool"):
+            AgentAPI(error_redaction=0)
+
+    def test_error_redaction_patterns_bare_string_raises(self):
+        """A single regex string would get exploded into character patterns by list(); reject it."""
+        with pytest.raises(TypeError, match="not a single string"):
+            AgentAPI(error_redaction_patterns=r"sk-\w+")
+
+    def test_error_redaction_patterns_non_iterable_raises(self):
+        with pytest.raises(TypeError, match="must be a list or tuple"):
+            AgentAPI(error_redaction_patterns=42)
+
+    def test_error_redaction_patterns_non_string_item_raises(self):
+        with pytest.raises(TypeError, match="must contain only strings"):
+            AgentAPI(error_redaction_patterns=[123, r"sk-\w+"])
+
+    def test_error_redaction_patterns_tuple_accepted(self):
+        """Tuples should work as iterables alongside lists."""
+        app = AgentAPI(error_redaction_patterns=(r"CUSTOM-[A-Z]+",))
+        assert any("CUSTOM" in p for p in app._error_redaction_patterns)
